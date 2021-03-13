@@ -1,0 +1,544 @@
+---
+title: "Real-TimeSeries-Markdown"
+author: "Danial"
+date: "3/8/2021"
+output: pdf_document
+---
+
+```{r packages, include=FALSE}
+library(magrittr)
+library(tseries)
+library(knitr)
+```
+# Task 1: Getting the Data
+All data for this assessment were obtained by downloading the Temperature data for 10 districts which each districts having 3 parameters (Tmin,Tmax, Tmean). The chosen  districts is as below:
+
+- Northern_Ireland
+- Scotland_N
+- Scotland_E
+- Scotland_W
+- England_E_and_NE
+- England_NW_and_N_Wales
+- Midlands
+- East_Anglia
+- England_SW_and_S_Wales
+- England_SE_and_Central_S
+
+This will results in having 30 Time-series and to ease the amount of pages for this report, only the plot/results for Northern-Ireland Time Series would be presented unless stated otherwise. However, The code will include all time-series using lapply() and Map() functions. 
+```{r, include=FALSE}
+districts <- c("Northern_Ireland",
+              "Scotland_N",
+              "Scotland_E",
+              "Scotland_W",
+              "England_E_and_NE",
+              "England_NW_and_N_Wales",
+              "Midlands",
+              "East_Anglia",
+              "England_SW_and_S_Wales",
+              "England_SE_and_Central_S"
+)
+
+parameters <- c("Tmin", "Tmax","Tmean")
+
+url <-"https://www.metoffice.gov.uk/pub/data/weather/uk/climate/datasets/"
+
+read.ts <- function(parameter, district,subset,row){
+  c(url,parameter,"/date/",district,".txt") %>% 
+  paste(collapse = "") %>% 
+  read.table(header = TRUE, skip=5, nrow=row) %>% 
+  subset(select= subset) %>% 
+  t() %>% 
+  as.vector() %>% 
+  ts(frequency = 12, end = c(2020,12))
+  
+}
+
+initial_data <- lapply(parameters, function(cty){
+  lapply(districts,function(ds_type){
+    read.ts(cty, ds_type,subset = 2:13,row=137)
+  }) 
+} %>% set_names(districts)) %>% set_names(parameters)
+
+```
+# Task 2: R-programming 
+```{r,echo=FALSE}
+sapply(initial_data, function(x)range(x))
+```
+# Task 3:EDA (Exploratory Data Analysis )
+Using Tmean time-series, the coldest/warmest region could be obtained by averaging each districts time-series. The Widest/lowest range could also be obtained and the results is as below:
+
+- Coldest: Scotland_N with an average mean temperature of 6.84  degree celcius
+- Warmest: England_SE_and_Central_S with an average mean temperature of 9.76  degree celcius
+- Widest range: East_Anglia with a range of 22.9 degree celcius
+- lowest range: Scotland_N with a range of 17.4 degree celcius
+
+Figure 1 shows the barplot for each districts range. 
+
+With the given Four Seasons data, a plot for summer and winter could be obtained to see the trend over the year and it could be concluded that both seasons increases in temperature as seen in Figure 2 and Figure 3. This could be linked with the emergence of global warming
+```{r,echo=FALSE,fig.show="hold", out.width="50%",warning=FALSE}
+
+#Apply mean on mean temp to find the coldest region
+Tmean.means <-lapply(initial_data$Tmean, function(x)mean(x))
+Cold.region <- which.min(Tmean.means)#Scotland_N 
+Hot.region <- which.max(Tmean.means)#England_SE_and_Central_S 
+
+#apply range on each district 
+range.diff <- function(x){
+  v= max(x)-min(x)
+  return(v)
+}
+
+district.range <-lapply(initial_data$Tmean,  function(x)range.diff(x))
+widest.range <- which.max(district.range)#east anglia 
+lowest.range <- which.min(district.range)#scotland_N
+
+
+#4 season
+winter.seas <- lapply(districts, read.ts, parameter='Tmean',subset=14,row=137)%>% set_names(districts)
+summer.seas <- lapply(districts, read.ts, parameter='Tmean',subset=16,row=137)%>% set_names(districts)
+
+barplot(sort(unlist(district.range)),main="Figure 1: Widest range in ascending order")
+ts.plot(winter.seas$Northern_Ireland,ylab="temp",main="Figure 2: Northern Ireland:Winter")
+ts.plot(summer.seas$Northern_Ireland,ylab="temp",main="Figure 3: Northern Ireland:Summer")
+```
+
+# Task 4: Trend and Seasonality 
+In this task, the time series was subsetted until the year 2019 and would undergo prediction using Regression lines, Seasonality and both combined. The chosen model would be chosed based on the Akaike information criterion (AIC) where it would gives the number of prediction error and thus lower value means better model.
+
+## Trend: Linear,Quadratic and Cubic Models
+The differences between the 3 models can be seen on Figure 4. By using the AIC() function, the linear model was chosen as it gives the lowest value for all districts and all parameters. The pmin() function was used to obtained the lowest value. In comparison, The AIC values of each model for the Northern_Ireland Time-Series at Tmin is :
+
+- Linear model AIC:     8750.06
+- Quadratic model AIC:  8751.68
+- Cubic model AIC:      8754.24
+
+Thus, the trend prediction model used the linear model with the predict() function and can be seen on Figure 5  with the red line being the prediction.
+
+```{r,echo=FALSE,fig.show="hold", out.width="50%"}
+#trend
+
+ts_2019 <- lapply(parameters, function(cty){
+  lapply(districts,function(ds_type){
+    read.ts(cty, ds_type,subset = 2:13,row=136)
+  }) 
+} %>% set_names(districts)) %>% set_names(parameters)
+
+# Create a time vector for each districts
+time.19 <- lapply(ts_2019, function(x){
+  lapply(x, function(x){
+    time(x)
+  })
+}) %>% as.vector()
+
+create_trend <- function(data,time,p_order){
+  lm(data~poly(time, degree=p_order,raw=TRUE))
+} 
+
+#trend_model
+linearmodel <- Map(function(x, y) Map(create_trend, x, y,p_order=1), ts_2019,time.19) 
+quadraticmodel <- Map(function(x, y) Map(create_trend, x, y,p_order=2), ts_2019,time.19) 
+cubicmodel <- Map(function(x, y) Map(create_trend, x, y,p_order=3), ts_2019,time.19) 
+
+#Comparing Northern_island models by plotting all trend 
+fitting.plot <- function(x){
+    x %>% 
+    fitted() %>% 
+    ts(start=1884,frequency = 12)
+}
+plot(NULL,
+     xlim=c(1883,2021),
+     ylim=c(4,6.5),
+     main="Figure 4: Regression Lines",
+     ylab ="Temperature",
+     xlab= "Time"
+     )
+lines(fitting.plot(linearmodel$Tmin$Northern_Ireland),col="green",lwd=2)
+lines(fitting.plot(quadraticmodel$Tmin$Northern_Ireland),col="red",lwd=2)
+lines(fitting.plot(cubicmodel$Tmin$Northern_Ireland),col="blue",lwd=2)
+
+#AIC Results
+linearmodel.aic <-Map(function(x) Map(AIC, x), linearmodel)
+quadraticmodel.aic <-Map(function(x) Map(AIC, x), quadraticmodel)
+cubicmodel.aic <-Map(function(x) Map(AIC, x), cubicmodel)
+
+aicresult <- Map(function(x, y,z) Map(pmin, x, y,z), quadraticmodel.aic, linearmodel.aic,cubicmodel.aic) 
+#From the aic results it can be seen that the best results are all from linear models as it has the lowest aic 
+
+predict.linear <- function(data){
+
+  ahead <- 12
+  TIME.NEW <- seq(from = 2019, by = 1/12, length = ahead)
+  prediction <- coefficients(data)[1]+coefficients(data)[2]*TIME.NEW
+  return(prediction)
+
+}
+linear.predict <- Map(function(x) Map(predict.linear, x), linearmodel)
+
+TIME.NEW <- seq(from = 2019, by = 1/12, length = 12) 
+
+plot(NULL,
+     xlim=c(1884,2021),
+     ylim=c(4,6.5),
+     main="Figure 5:Linear Prediction",
+     ylab ="Temperature",
+     xlab= "Time"
+     )
+lines(fitting.plot(linearmodel$Tmin$Northern_Ireland),col="green",lwd=2)
+lines(TIME.NEW,linear.predict$Tmin$Northern_Ireland,col="red",lwd=2)
+
+```
+
+## Seasonality: Average Model and Harmonic Model
+A time-series would have a characteristic of seasonality if there is a pattern that exist over a one year period. Thus allowing seasonal to act like a trend but differs from regression lines. Prior to analyzing the seasonal trend, the linear-trend was removed to ensure the integrity of the seasonality in each time series.
+
+The seasonal means/Average model would be applied first and the result can be seen on figure 6 with the black lines being the no-trend time-series while the green line would be the seasonal data using an Average model. Then, using the seasonal means, a prediction was made and can be seen as the red line on figure 6.
+
+The harmonic model would then be applied by integrating trigonometric functions onto the time-series. Each data would then be tested until the fourth order of the harmonic model and the coefficients would then be analyzed to determine an appropriate model. Majority of the data in the fourth and the third model does not fall under the significance level and thus rejected from being an appropriate model. As an example using the Northern Ireland with the parameters Tmin, Image 1 shows the p-value for order 4:
+
+![Image 1: Summary Report on Harmonic Order = 4.](order4.harmonic.png)
+
+
+Image 1 shows that the order 4 and 3 is not appropriate and thus rejected. In choosing the appropriate model, the AIC function was used on Harmonic (1,2) and seasonal means and the lowest values would be on harmonic model with order 2 for all time series except for 3 districts in Tmax. The 3 districts would be Scotland_N, Scotland_W and England_NW. Despite that, the chosen model would still be Harmonic model with order 2
+
+```{r,echo=FALSE,fig.show="hold", out.width="50%",warning=FALSE}
+#deleting trend/residuals
+
+linear.fitted <- Map(function(x) Map(fitted, x), linearmodel)
+
+deleting_trend<- function(x,y){
+  v <- x-y
+  return(v)
+}
+
+data_notrend <- Map(function(x, y) Map(deleting_trend, x,y), ts_2019,linear.fitted)
+
+#seasonal means
+months <- lapply(data_notrend,function(x){
+  lapply(x,function(x){
+    as.factor(cycle(x))
+  })
+})
+
+lmodel <- function(x,y){
+  lm(x~y -1)
+}
+seas.means <- Map(function(x, y) Map(lmodel, x,y), data_notrend,months)
+
+time1 <- time.19$Tmin$Northern_Ireland %>% time() %>% as.vector()
+
+#predict seasonal means model for 2020
+predict.seasonal.means <- function(data){
+
+  ahead <- 12
+  prediction <- rep(data %>% coefficients(),length=ahead)
+  return(prediction)
+}
+TIME.NEW <- seq(from = 2021, by = 1/12, length = 12) 
+seas.predict <- Map(function(x) Map(predict.seasonal.means, x), seas.means)
+
+  plot(window(data_notrend$Tmin$Northern_Ireland, start=2000,end=end(data_notrend$Tmin$Northern_Ireland)),
+       main='Figure 6: Northern Ireland: Seasonal Means Model',
+       xlab='Time',
+       ylab='Temp')
+  lines(time1,fitted(seas.means$Tmin$Northern_Ireland),col='green')
+  lines(TIME.NEW,seas.predict$Tmin$Northern_Ireland,col='red')
+
+#Harmonic Seasonal Model
+SIN <- COS <- matrix(nrow=length(time1), ncol = 6)
+
+for(i in 1:6){
+  SIN[,i] <- sin(2*pi*i*time1)
+  COS[,i] <- cos(2*pi*i*time1)
+}
+
+
+create.seas.har <- function(data, order){
+  x <- lm(data ~ . - 1,
+     data.frame(SIN=SIN[,1:order],COS=COS[,1:order]))
+  
+  return(x)
+}
+create.summary.har <- function(har.data){
+  v <- har.data %>% 
+        summary()
+  v <- v$coefficients
+  return(v)
+}
+
+
+#order 1
+seasonal.har1 <- Map(function(x) Map(create.seas.har,x,order=1), data_notrend)
+summary.har1 <- Map(function(x) Map(create.summary.har,x), seasonal.har1)
+
+#order 2
+seasonal.har2 <- Map(function(x) Map(create.seas.har,x,order=2), data_notrend)
+summary.har2 <- Map(function(x) Map(create.summary.har,x), seasonal.har2)
+
+#order 3
+seasonal.har3 <- Map(function(x) Map(create.seas.har,x,order=3), data_notrend)
+summary.har3 <- Map(function(x) Map(create.summary.har,x), seasonal.har3)
+
+#order 4
+seasonal.har4 <- Map(function(x) Map(create.seas.har,x,order=4), data_notrend)
+summary.har4 <- Map(function(x) Map(create.summary.har,x), seasonal.har4)
+
+#majority of the time series in order 3 and 4 does not fall under the 95% confidence interval thus making it a bad model. Only order 1,2 and seasonal means would be appropriate but further test using AIC still need to be done on order 1,2 and seasonal means
+
+#using Aic to compare model including seasonal means 
+har1.aic <- Map(function(x) Map(AIC,x), seasonal.har1)
+har2.aic <- Map(function(x) Map(AIC,x), seasonal.har2)
+seasmeans.aic <- Map(function(x) Map(AIC,x), seas.means)
+
+seasonalaicresult <- Map(function(x, y,z) Map(pmin, x, y,z), har1.aic, har2.aic,
+                         seasmeans.aic) 
+# From the AIC results, the best seasonal model would be the harmonic model at order = 2. All region in Tmin and Tmean chooses order=2 while 3 region in Tmax chooses the seasonal means model.The 3 model would be Scotland_N, Scotland_W and England_NW
+
+#predict harmonic seasonal model for 2020
+predict.seasonal.har <- function(data){
+
+  ahead <- 12
+  TIME.NEW <- seq(from = 2019, by = 1/12, length = ahead)
+  SIN <- COS <- matrix(nrow=length(TIME.NEW), ncol = 6)
+
+  for(i in 1:6){
+    SIN[,i] <- sin(2*pi*i*TIME.NEW)
+    COS[,i] <- cos(2*pi*i*TIME.NEW)
+  }
+ 
+  prediction <- predict(data, newdata=data.frame(SIN=SIN,COS=COS))
+  return(prediction)
+}
+
+har.predict <- Map(function(x) Map(predict.seasonal.har, x), seasonal.har2)
+
+
+    plot(window(data_notrend$Tmin$Northern_Ireland, start=2000,end=end(data_notrend$Tmin$Northern_Ireland)),
+         main='Figure 7: Northern Ireland: Harmonic model with order 2',
+         xlab='Time',
+         ylab='Temp')
+    lines(time1,fitted(seasonal.har2$Tmin$Northern_Ireland),col='green')
+    lines(TIME.NEW,har.predict$Tmin$Northern_Ireland,col='red')
+
+
+```
+
+## Combined model (Linear and Harmonic Model (order=2))
+Since the appropriate models for regression line and seasonality were determined, A list called final would be created by applying the combined model(Linear model and Harmonic model:order=2) on the time-series (1884-2019). On top of that, another list called test would also apply a quadratic model and harmonic model:order=2 on the time-series(1884-2019). Figure 8 and 9 would present the trend model and prediction for final and test datasets respectively.
+
+```{r,echo=FALSE,fig.show="hold", out.width="50%"}
+
+create.final.trend <- function(data,time,order){
+  v <- lm(data ~ .,
+     data.frame(poly(time, degree=order,raw=TRUE),
+     SIN=SIN[,1:2],
+     COS=COS[,1:2]))
+  
+  return(v)
+}
+
+#Create two final and test model
+final <- Map(function(x,y) Map(create.final.trend,x,y,order=1), ts_2019,time.19) 
+test <- Map(function(x,y) Map(create.final.trend,x,y,order=2), ts_2019,time.19)
+
+create.combined.predict <- function(data,order,norder){
+
+  ahead <- 12
+  TIME.NEW <- seq(from = 2019, by = 1/12, length = ahead)
+  SIN.NEW <- COS.NEW <- matrix(nrow = length(TIME.NEW), ncol = 6)
+  
+  for(i in 1:6){
+    SIN.NEW[,i] <- sin(2 * pi * i * TIME.NEW)
+    COS.NEW[,i] <- cos(2 * pi * i * TIME.NEW)
+  }
+  
+  
+  pred <- predict(data, newdata = data.frame(poly(TIME.NEW, degree = order, raw = TRUE),
+                                         SIN = SIN.NEW[, 1:norder],
+                                         COS = COS.NEW[, 1:norder]))
+  pred
+  
+  return(pred)
+
+}
+final.prediction <- Map(function(x) Map(create.combined.predict, x,order=1,norder=2), final)
+test.prediction <- Map(function(x) Map(create.combined.predict, x,order=2,norder=2), test)
+
+{
+    plot(window(ts_2019$Tmin$Northern_Ireland, start=2000,end=end(data_notrend$Tmin$Northern_Ireland)),
+         main='Figure 8: Northern Ireland: Final Prediction',
+         xlab='Time',
+         ylab='Temp')
+    lines(time1,fitted(final$Tmin$Northern_Ireland),col='green')
+    lines(TIME.NEW,final.prediction$Tmin$Northern_Ireland,col='red')
+}
+
+{
+    plot(window(ts_2019$Tmin$Northern_Ireland, start=2000,end=end(data_notrend$Tmin$Northern_Ireland)),
+         main='Figure 9: Northern Ireland: Test Prediction',
+         xlab='Time',
+         ylab='Temp')
+    lines(time1,fitted(test$Tmin$Northern_Ireland),col='green')
+    lines(TIME.NEW,test.prediction$Tmin$Northern_Ireland,col='red')
+}
+
+
+```
+
+# Task 5:ARMA and Forecasting
+## Stationarity
+In order to deploy an ARMA model, the time-series need to be stationary and this can be done by removing all the trends and seasonality obtained from the previous task. Once the trends are removed, an Augmented Dickey-Fuller test will be applied on the data in order to test the stationarity of the time-series. All time-series in both final and test model are stationary with having a p-value of less than 0.05 and reject the null hypothesis. Image 2 shows an ADF test done on the final-data on districts Northern Ireland with parameter Tmin.
+
+![Image 2: ADF Test.](adf.test.png)
+## ARMA Model
+ARMA model is a prediction model that uses autoregression and moving average prediction technique. **Autoregressive model** or AR uses previous values of the time-series value/dependant values to make prediction while **Moving Average model** or MA uses the series mean and previous error to make predictions. However, AR and MA model required appropriate order to create a prediction model with the less error and this could be done by looking at the ACF and PACF plots. The ACF plots will determine the MA order and the PACF plot will determine the AR model. Image 3 shows the ACF plot where it is significant at lag 4 before going down and Image 4 shows PACF plot where it is only significant at lag 1. This would propose that the appropriate model would be ARMA(1,4). However, the arima() function would have a built in AIC values and thus propose a more efficient approach in determining the ARMA model order. 
+
+![Image 3: ACF](ACF.png) 
+
+![Image 4: PACF](PACF.png)
+
+With the chosen ARMA model, the prediction could be done and Figure 10 and 11 shows the prediction done on top of the actual value for the 2020 Temperature for both final and test time-series. Both Figure shows promising prediction but further forecast accuracy test would need to be done.
+
+## Forecast Accuracy
+Since all 30 time-series uses the same scale for the temperature data, A Scale-dependent errors measurement was used and the method used is the Mean Absolute error which is by averaging both the actual value means and the prediction value means and subtract both values.The value would then be compared and the threshold for a significant error would be determined before the accuracy test.
+
+The significant error would be >=1 
+
+the result for all errors does not surpass 1 or = 1 and thus propose that the ARMA prediction model produces an accurate results. For example, using the Northen_Ireland accuracy results, the ARMA model produces an error of 0.11 for the final model and 0.06 for the test model 
+
+```{r,echo=FALSE,fig.show="hold", out.width="50%",warning=FALSE}
+#Total Residuals 
+create.residuals <- function(x,y){
+  v <- x-y %>% fitted()
+  
+}
+
+final.residuals <- Map(function(x, y) Map(create.residuals, x,y), ts_2019,final)
+test.residuals <- Map(function(x, y) Map(create.residuals, x,y), ts_2019,test)
+
+#Testing for stationarity 
+final.adf <- Map(function(x) Map(adf.test, x), final.residuals)
+test.adf <- Map(function(x) Map(adf.test, x), test.residuals)
+
+
+
+#since both final and test model produces stationary model by rejecting the null hypothesis with the significant level at 0.05, the ARMA model can be apllied next for predictions. 
+
+#ARMA Model with order selection 
+
+create.armamodel <- function(data){
+  n <- length(data)
+
+norder <- 4
+
+p <- (1:norder) -1 
+q <- (1:norder) -1
+
+aic <- matrix(0, norder, norder)
+
+for(i in 1:norder){
+  
+  for(j in 1:norder){
+    
+    modij <- arima(data, order = c(p[i],0,q[j]), method='ML')
+    
+    aic[i,j] <- modij$aic-2*(p[i]+q[j]+1)+2*(p[i]+q[j]+1)*n/(n-p[i]-q[j]-2)
+  }  
+}
+
+indexaic <- which(aic == min(aic), arr.ind = TRUE)
+
+porder <- indexaic[1,1] - 1
+qorder <- indexaic[1,2] - 1
+
+#selected residuals models for the current parameters and district 
+residuals.model <- arima(data, order = c(porder, 0, qorder), method = "ML")
+
+return(residuals.model)
+  
+}
+
+# Final residuals model
+final.arma <- Map(function(x) Map(create.armamodel, x), final.residuals)
+test.arma <- Map(function(x) Map(create.armamodel, x), test.residuals)
+
+  
+
+# Predictions ----
+create.final.predict <- function(data1,data2,order,norder){
+
+  ahead <- 12
+  TIME.NEW <- seq(from = 2019, by = 1/12, length = ahead)
+  
+  pred.res <- predict(data1, n.ahead = ahead)$pred
+  
+
+  SIN.NEW <- COS.NEW <- matrix(nrow = length(TIME.NEW), ncol = 6)
+  
+  for(i in 1:6){
+    SIN.NEW[,i] <- sin(2 * pi * i * TIME.NEW)
+    COS.NEW[,i] <- cos(2 * pi * i * TIME.NEW)
+  }
+  
+  
+  pred <- predict(data2, newdata = data.frame(poly(TIME.NEW, degree = order, raw = TRUE),
+                                         SIN = SIN.NEW[, 1:norder],
+                                         COS = COS.NEW[, 1:norder]))
+  prediction=pred +pred.res
+  
+  
+  
+  return(prediction)
+
+}
+
+final.arma.prediction <- Map(function(x,y) Map(create.final.predict, x,y,order=1,norder=2), final.arma,final)
+test.arma.prediction <- Map(function(x,y) Map(create.final.predict, x,y,order=2,norder=2), test.arma,test)
+
+ substract <- function(x,y){
+   v= y-x
+   return(v)
+ }
+ 
+ V_2020 <- Map(function(x) Map(function(x){window(x,start=2020,end = 2021)}, x),initial_data)
+ V_2020 <- Map(function(x) Map(mean, x),V_2020)
+ 
+ final.arma.prediction.means <- Map(function(x) Map(mean, x),final.arma.prediction)
+ test.arma.prediction.means <- Map(function(x) Map(mean, x),test.arma.prediction)
+ 
+ final.prediction.error <- Map(function(x,y) Map(substract, x,y),final.arma.prediction.means,V_2020)
+ test.prediction.error <- Map(function(x,y) Map(substract, x,y),test.arma.prediction.means,V_2020)
+
+ 
+ timeold <- initial_data$Tmin$Northern_Ireland %>% time() %>% as.vector()
+   
+ plotting <- function(data,data1,mains){
+   ahead <- 12
+   TIME.NEW <- seq(from = 2020, by = 1/12, length = ahead)
+ {
+  plot(timeold,
+       data,
+       main=mains,
+       ylab="Temperature",
+       xlab="Time",
+       type = 'l',
+       xlim = c(2000, 2021))
+  lines(TIME.NEW,
+        data1,
+        col = 'red',
+        lwd = 2)
+  }
+ }
+final.plots <- plotting(initial_data$Tmin$Northern_Ireland,
+                        final.prediction$Tmin$Northern_Ireland,
+                        mains = 'Figuure 10: Final:Tmin:Northern_Ireland prediction')
+test.plots <- plotting(initial_data$Tmin$Northern_Ireland,
+                       test.prediction$Tmin$Northern_Ireland,
+                       mains = 'Figure 11: Test:Tmin:Northern_Ireland prediction')
+```
+
+# Conclusion
+
+As conclusion, all 30 time-series were predicted using Regression Lines, Seasonality and ARMA model. All model would be integral in determining the pattern of the data. The Regression lines shows an increasing trend of temperature. The seasonality trend shows that there is a repeated patterns throughout the year and in this case, there is a four season each year in every region in UK. The ARMA model would create an accurate prediction under the appropriate AR and MA order. 
+
+
+ 
