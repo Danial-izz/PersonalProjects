@@ -8,4 +8,4 @@ This section consist of my personal projects that peak my interests. The project
 Contact Method |  | 
 --- |--- |
 Professional Email | danial.jaslani@gmail.com |
-LinkedIn | |
+LinkedIn |https://www.linkedin.com/in/danial-jaslani-79149b228/ |
