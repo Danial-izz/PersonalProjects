@@ -21,6 +21,6 @@ Now i focus on being a critical analyzer and programmer to either tackle my exis
 Contact Method |  | 
 --- |--- |
 Professional Email | danial.jaslani@gmail.com |
-LinkedIn | |
+LinkedIn | https://www.linkedin.com/in/danial-jaslani-79149b228/|
 
 
