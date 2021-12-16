@@ -8,4 +8,4 @@ new technique that was alien to me before. I will upload the projects if the con
 Contact Method |  | 
 --- |--- |
 Professional Email | danial.jaslani@gmail.com |
-LinkedIn | |
+LinkedIn |https://www.linkedin.com/in/danial-jaslani-79149b228/ |
